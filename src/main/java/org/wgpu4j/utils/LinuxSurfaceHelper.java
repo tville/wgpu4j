@@ -38,6 +38,30 @@ public class LinuxSurfaceHelper {
     }
 
     /**
+     * Creates a Wayland surface source for Linux platforms.
+     *
+     * @param arena          The memory arena to allocate in
+     * @param waylandWindow  The Wayland window handle
+     * @param waylandDisplay The Wayland display handle
+     * @return MemorySegment representing the surface source
+     */
+    public static MemorySegment createWaylandSurfaceSource(Arena arena, long waylandWindow, long waylandDisplay) {
+        validateHandle(waylandWindow, "Wayland Window");
+        validateHandle(waylandDisplay, "Wayland Display");
+        MemorySegment surfaceSource = WGPUSurfaceSourceWaylandSurface.allocate(arena);
+        MemorySegment chain = WGPUSurfaceSourceWaylandSurface.chain(surfaceSource);
+        WGPUChainedStruct.next(chain, MemorySegment.NULL);
+        WGPUChainedStruct.sType(chain, webgpu_h.WGPUSType_SurfaceSourceWaylandSurface());
+        WGPUSurfaceSourceWaylandSurface.display(surfaceSource, MemorySegment.ofAddress(waylandDisplay));
+        WGPUSurfaceSourceWaylandSurface.surface(surfaceSource, MemorySegment.ofAddress(waylandWindow));
+
+        logger.info("Created Wayland surface source with window: 0x{}, display: 0x{}",
+                Long.toHexString(waylandWindow), Long.toHexString(waylandDisplay));
+
+        return surfaceSource;
+    }
+
+    /**
      * Validates that a native handle is not null/zero.
      *
      * @param handle     The handle to validate
@@ -45,8 +69,18 @@ public class LinuxSurfaceHelper {
      * @throws IllegalArgumentException if the handle is invalid
      */
     public static void validateHandle(long handle, String handleType) {
-        if (handle == 0) {
+        if (!isValidHandle(handle)) {
             throw new IllegalArgumentException(handleType + " handle cannot be null/zero");
         }
+    }
+
+    /**
+     * Evaluates whether a native handle is not null/zero.
+     *
+     * @param handle The handle to validate
+     * @return bool representing handle validity
+     */
+    public static boolean isValidHandle(long handle) {
+        return handle != 0;
     }
 }

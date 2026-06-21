@@ -23,7 +23,8 @@ public class SurfaceUtils {
     public enum Platform {
         WINDOWS,
         MACOS,
-        LINUX_X11
+        LINUX_X11,
+        LINUX_WAYLAND
     }
 
     /**
@@ -44,7 +45,7 @@ public class SurfaceUtils {
 
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment surfaceDesc = WGPUSurfaceDescriptor.allocate(arena);
-            MemorySegment surfaceSource;
+            MemorySegment surfaceSource = MemorySegment.NULL;
 
             if (os.contains("win")) {
                 try {
@@ -74,6 +75,7 @@ public class SurfaceUtils {
                 }
 
             } else {
+                boolean glfwWindowIsX11Window;
                 try {
                     Class<?> glfwNativeX11 = Class.forName("org.lwjgl.glfw.GLFWNativeX11");
                     var getX11Window = glfwNativeX11.getMethod("glfwGetX11Window", long.class);
@@ -81,9 +83,25 @@ public class SurfaceUtils {
                     long x11Window = (Long) getX11Window.invoke(null, glfwWindow);
                     long x11Display = (Long) getX11Display.invoke(null);
 
-                    surfaceSource = LinuxSurfaceHelper.createX11SurfaceSource(arena, x11Window, x11Display);
+                    glfwWindowIsX11Window = LinuxSurfaceHelper.isValidHandle(x11Window);
+                    if (glfwWindowIsX11Window) {
+                        surfaceSource = LinuxSurfaceHelper.createX11SurfaceSource(arena, x11Window, x11Display);
+                    }
                 } catch (Exception e) {
                     throw new WgpuException("Failed to get X11 window handle from GLFW", e);
+                }
+
+                if (!glfwWindowIsX11Window) {
+                    try {
+                        Class<?> glfwNativeWayland = Class.forName("org.lwjgl.glfw.GLFWNativeWayland");
+                        var getWaylandWindow = glfwNativeWayland.getMethod("glfwGetWaylandWindow", long.class);
+                        var getWaylandDisplay = glfwNativeWayland.getMethod("glfwGetWaylandDisplay");
+                        long waylandWindow = (Long) getWaylandWindow.invoke(null, glfwWindow);
+                        long waylandDisplay = (Long) getWaylandDisplay.invoke(null);
+                        surfaceSource = LinuxSurfaceHelper.createWaylandSurfaceSource(arena, waylandWindow, waylandDisplay);
+                    } catch (Exception e) {
+                        throw new WgpuException("Failed to get Wayland window handle from GLFW", e);
+                    }
                 }
             }
 
@@ -98,7 +116,7 @@ public class SurfaceUtils {
      * @param instance     The WebGPU instance
      * @param platform     The target platform
      * @param windowHandle The native window handle
-     * @param extraHandle  Additional handle (HINSTANCE for Windows, X11 display for Linux, unused for macOS)
+     * @param extraHandle  Additional handle (HINSTANCE for Windows, X11/Wayland display for Linux, unused for macOS)
      * @return A new Surface instance
      * @throws WgpuException if surface creation fails
      */
@@ -126,9 +144,15 @@ public class SurfaceUtils {
                 }
                 case LINUX_X11 -> {
                     if (extraHandle == 0) {
-                        throw new IllegalArgumentException("X11 display handle is required for Linux");
+                        throw new IllegalArgumentException("X11 display handle is required for Linux X11");
                     }
                     surfaceSource = LinuxSurfaceHelper.createX11SurfaceSource(arena, windowHandle, extraHandle);
+                }
+                case LINUX_WAYLAND -> {
+                    if (extraHandle == 0) {
+                        throw new IllegalArgumentException("Wayland display handle is required for Linux Wayland");
+                    }
+                    surfaceSource = LinuxSurfaceHelper.createWaylandSurfaceSource(arena, windowHandle, extraHandle);
                 }
                 default -> throw new IllegalArgumentException("Unsupported platform: " + platform);
             }
